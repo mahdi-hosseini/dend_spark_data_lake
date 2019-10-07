@@ -33,7 +33,7 @@ class Singleton(type):
         return cls._instance
 
 
-class SparkPipeline(metaclass=Singleton):
+class SparkContext(metaclass=Singleton):
     def __init__(
         self, config_file: str, aws_env_vars: list, extra_jars: list
     ) -> None:
@@ -45,7 +45,7 @@ class SparkPipeline(metaclass=Singleton):
         """
         Always returns same instance of class
         """
-        return SparkPipeline()
+        return SparkContext()
 
     def create_session(self, extra_jars: list) -> SparkSession:
         """
@@ -90,6 +90,10 @@ class SparkPipeline(metaclass=Singleton):
                         "Could not find configuration option '{var}'"
                         " in section 'aws'."
                     )
+
+class ETLPipeline:
+    def __init__(self, spark_context: SparkContext) -> None:
+        self.spark_context: SparkContext = spark_context
 
     def get_songs_table(self, df: DataFrame) -> DataFrame:
         """
@@ -321,19 +325,21 @@ class SparkPipeline(metaclass=Singleton):
 
 
 def main():
-    spark_pipeline = SparkPipeline(
+    spark_context = SparkContext(
         config_file="dl.cfg",
         aws_env_vars=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         extra_jars=["org.apache.hadoop:hadoop-aws:2.7.0"],
     )
 
+    etl_pipeline = ETLPipeline(spark_context)
+
     s3_bucket_uri = "s3a://udacity-dend"
     output_data = "output"
 
-    spark_pipeline.process_song_data(
+    etl_pipeline.process_song_data(
         urljoin(s3_bucket_uri, "song_data/*/*/*/*.json"), output_data
     )
-    spark_pipeline.process_log_data(
+    etl_pipeline.process_log_data(
         urljoin(s3_bucket_uri, "log_data/*.json"), output_data
     )
 

@@ -12,7 +12,6 @@ from pyspark.sql.functions import (
     desc,
     hour,
     lit,
-    monotonically_increasing_id,
     month,
     row_number,
     udf,
@@ -34,7 +33,7 @@ class Singleton(type):
         return cls._instance
 
 
-class Spark(metaclass=Singleton):
+class SparkPipeline(metaclass=Singleton):
     def __init__(
         self, config_file: str, aws_env_vars: list, extra_jars: list
     ) -> None:
@@ -43,11 +42,18 @@ class Spark(metaclass=Singleton):
 
     @classmethod
     def get_instance(cls):
-        return Spark()
+        """
+        Always returns same instance of class
+        """
+        return SparkPipeline()
 
     def create_session(self, extra_jars: list) -> SparkSession:
         """
-        Instantiate a SparkContext with hadoop-aws package
+        Instantiate a SparkContext with additional jars
+
+        :param extra_jars: list of Maven coordinates of jars to include on
+                            the driver and executor classpaths
+
         """
         if not extra_jars:
             raise ValueError("No jar names were provided")
@@ -62,6 +68,10 @@ class Spark(metaclass=Singleton):
         """
         Set AWS keys as environment variables using a ConfigParser
         INI configuration file
+
+        :param config_file: Path to ConfigParser INI file
+        :param aws_env_vars: Options to pick from 'aws' section in the INI file
+
         """
         try:
             config = configparser.ConfigParser()
@@ -69,14 +79,17 @@ class Spark(metaclass=Singleton):
         except configparser.Error:
             raise ValueError("Could not parse configuration file")
         else:
-            try:
-                for var in aws_env_vars:
+            for var in aws_env_vars:
+                try:
                     os.environ[var] = config.get("aws", var)
-            except (configparser.NoOptionError, configparser.NoSectionError):
-                raise KeyError(
-                    "Could not find configuration option '{var}'"
-                    " in section 'aws'."
-                )
+                except (
+                    configparser.NoOptionError,
+                    configparser.NoSectionError,
+                ):
+                    raise KeyError(
+                        "Could not find configuration option '{var}'"
+                        " in section 'aws'."
+                    )
 
     def get_songs_table(self, df: DataFrame) -> DataFrame:
         """
@@ -93,11 +106,16 @@ class Spark(metaclass=Singleton):
             "year", when(df["year"] == 0, lit(None)).otherwise(df["year"])
         )
 
-        # dedupe based on artist_id and song_id
-        window = Window.partitionBy("song_id").orderBy("artist_id", "song_id")
-
+        # de-dupe based on artist_id and song_id
         return (
-            songs_table.withColumn("row_number", row_number().over(window))
+            songs_table.withColumn(
+                "row_number",
+                row_number().over(
+                    Window.partitionBy("song_id").orderBy(
+                        "artist_id", "song_id"
+                    )
+                ),
+            )
             .filter(col("row_number") == 1)
             .drop("row_number")
         )
@@ -115,11 +133,16 @@ class Spark(metaclass=Singleton):
             col("artist_longitude").alias("longitude"),
         )
 
-        # dedupe based on artist_id and artist_name
-        window = Window.partitionBy("artist_id").orderBy("artist_id", "name")
-
+        # de-dupe based on artist_id and artist_name
         return (
-            artists_table.withColumn("row_number", row_number().over(window))
+            artists_table.withColumn(
+                "row_number",
+                row_number().over(
+                    Window.partitionBy("artist_id").orderBy(
+                        "artist_id", "name"
+                    )
+                ),
+            )
             .filter(col("row_number") == 1)
             .drop("row_number")
         )
@@ -233,10 +256,10 @@ class Spark(metaclass=Singleton):
             | (col("userId") != "")
         )
 
-        df = df.withColumn("userId", col("userId").cast(LongType()))
-
         # filter by actions for song plays
-        return df.filter(df.page == "NextSong")
+        return df.withColumn("userId", col("userId").cast(LongType())).filter(
+            df.page == "NextSong"
+        )
 
     def process_log_data(self, input_data, output_data) -> None:
         """
@@ -247,11 +270,11 @@ class Spark(metaclass=Singleton):
         log_data_df = self.clean_log_data(log_data_df)
 
         users_table_df = self.get_users_table(log_data_df)
-        users_table_df.write.parquet(urljoin(output_data, "/users"))
+        users_table_df.write.parquet(urljoin(output_data, "users"))
 
         time_table_df = self.get_time_table(log_data_df)
         time_table_df.write.partitionBy("year", "month").parquet(
-            urljoin(output_data, "/time")
+            urljoin(output_data, "time")
         )
 
         # read in song data to use for songplays table
@@ -298,7 +321,7 @@ class Spark(metaclass=Singleton):
 
 
 def main():
-    spark = Spark(
+    spark_pipeline = SparkPipeline(
         config_file="dl.cfg",
         aws_env_vars=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         extra_jars=["org.apache.hadoop:hadoop-aws:2.7.0"],
@@ -307,10 +330,10 @@ def main():
     s3_bucket_uri = "s3a://udacity-dend"
     output_data = "output"
 
-    spark.process_song_data(
+    spark_pipeline.process_song_data(
         urljoin(s3_bucket_uri, "song_data/*/*/*/*.json"), output_data
     )
-    spark.process_log_data(
+    spark_pipeline.process_log_data(
         urljoin(s3_bucket_uri, "log_data/*.json"), output_data
     )
 

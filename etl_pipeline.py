@@ -1,9 +1,6 @@
-import configparser
-import os
 from datetime import datetime
-from urllib.parse import urljoin
 
-from pyspark.sql import SparkSession, Window
+from pyspark.sql import Window
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.functions import (
     col,
@@ -20,80 +17,14 @@ from pyspark.sql.functions import (
     year,
 )
 from pyspark.sql.types import LongType, TimestampType
+from spark import SparkSession
 
-
-class Singleton(type):
-    def __init__(cls, name, bases, attrs, **kwargs):
-        super().__init__(name, bases, attrs)
-        cls._instance = None
-
-    def __call__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__call__(*args, **kwargs)
-        return cls._instance
-
-
-class SparkContext(metaclass=Singleton):
-    def __init__(
-        self, config_file: str, aws_env_vars: list, extra_jars: list
-    ) -> None:
-        self.configure_environment(config_file, aws_env_vars)
-        self.spark_context: SparkSession = self.create_session(extra_jars)
-
-    @classmethod
-    def get_instance(cls):
-        """
-        Always returns same instance of class
-        """
-        return SparkContext()
-
-    def create_session(self, extra_jars: list) -> SparkSession:
-        """
-        Instantiate a SparkContext with additional jars
-
-        :param extra_jars: list of Maven coordinates of jars to include on
-                            the driver and executor classpaths
-
-        """
-        if not extra_jars:
-            raise ValueError("No jar names were provided")
-
-        return SparkSession.builder.config(
-            "spark.jars.packages", ",".join(extra_jars)
-        ).getOrCreate()
-
-    def configure_environment(
-        self, config_file: str, aws_env_vars: list
-    ) -> None:
-        """
-        Set AWS keys as environment variables using a ConfigParser
-        INI configuration file
-
-        :param config_file: Path to ConfigParser INI file
-        :param aws_env_vars: Options to pick from 'aws' section in the INI file
-
-        """
-        try:
-            config = configparser.ConfigParser()
-            config.read(config_file)
-        except configparser.Error:
-            raise ValueError("Could not parse configuration file")
-        else:
-            for var in aws_env_vars:
-                try:
-                    os.environ[var] = config.get("aws", var)
-                except (
-                    configparser.NoOptionError,
-                    configparser.NoSectionError,
-                ):
-                    raise KeyError(
-                        "Could not find configuration option '{var}'"
-                        " in section 'aws'."
-                    )
+def urljoin(*args):
+    return "/".join(args)
 
 class ETLPipeline:
-    def __init__(self, spark_context: SparkContext) -> None:
-        self.spark_context: SparkContext = spark_context
+    def __init__(self, spark_session: SparkSession) -> None:
+        self.spark_session: SparkSession = spark_session
 
     def get_songs_table(self, df: DataFrame) -> DataFrame:
         """
@@ -156,7 +87,7 @@ class ETLPipeline:
         Perform ETL on song dataset
         TODO: ADD DOCSTRING
         """
-        song_data_df = self.spark_context.read.json(input_data)
+        song_data_df = self.spark_session.read.json(input_data)
 
         songs_table_df = self.get_songs_table(song_data_df)
         songs_table_df.write.partitionBy("year", "artist_id").parquet(
@@ -270,7 +201,7 @@ class ETLPipeline:
         Perform ETL on user activity log dataset
         TODO: ADD DOCSTRING
         """
-        log_data_df = self.spark_context.read.json(input_data)
+        log_data_df = self.spark_session.read.json(input_data)
         log_data_df = self.clean_log_data(log_data_df)
 
         users_table_df = self.get_users_table(log_data_df)
@@ -282,10 +213,10 @@ class ETLPipeline:
         )
 
         # read in song data to use for songplays table
-        songs_table_df = self.spark_context.read.parquet(
+        songs_table_df = self.spark_session.read.parquet(
             urljoin(output_data, "songs")
         )
-        artists_table_df = self.spark_context.read.parquet(
+        artists_table_df = self.spark_session.read.parquet(
             urljoin(output_data, "artists")
         )
 
@@ -325,13 +256,13 @@ class ETLPipeline:
 
 
 def main():
-    spark_context = SparkContext(
-        config_file="dl.cfg",
+    spark_session = SparkSession(
+        config_file="config/aws_keys.cfg",
         aws_env_vars=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         extra_jars=["org.apache.hadoop:hadoop-aws:2.7.0"],
     )
 
-    etl_pipeline = ETLPipeline(spark_context)
+    etl_pipeline = ETLPipeline(spark_session)
 
     s3_bucket_uri = "s3a://udacity-dend"
     output_data = "output"

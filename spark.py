@@ -3,6 +3,7 @@ import os
 
 from pyspark.sql import SparkSession
 
+
 class Singleton(type):
     def __init__(cls, name, bases, attrs, **kwargs):
         super().__init__(name, bases, attrs)

@@ -28,9 +28,18 @@ class ETLPipeline:
 
     def get_songs_table(self, df: DataFrame) -> DataFrame:
         """
-        TODO: ADD DOCSTRING
+        Filter songs table attributes, handle invalid values and
+        de-deuplicate song records based on artist_id and song_id
+
+        Table Attributes:
+          - song_id
+          - title
+          - artist_id
+          - year
+          - duration
+          - year
         """
-        # extract columns to create songs table
+
         songs_table = df.select(
             col("song_id"),
             col("title"),
@@ -41,7 +50,6 @@ class ETLPipeline:
             "year", when(df["year"] == 0, lit(None)).otherwise(df["year"])
         )
 
-        # de-dupe based on artist_id and song_id
         return (
             songs_table.withColumn(
                 "row_number",
@@ -57,9 +65,17 @@ class ETLPipeline:
 
     def get_artists_table(self, df: DataFrame) -> DataFrame:
         """
-        TODO: ADD DOCSTRING
+        Filter artists table attributes, handle invalid values and
+        de-deuplicate song records based on artist_id and artist_name
+
+        Table Attributes:
+          - id
+          - name
+          - location
+          - latitude
+          - longitude
         """
-        # extract columns to create artists table
+
         artists_table = df.select(
             col("artist_id"),
             col("artist_name").alias("name"),
@@ -68,7 +84,7 @@ class ETLPipeline:
             col("artist_longitude").alias("longitude"),
         )
 
-        # de-dupe based on artist_id and artist_name
+
         return (
             artists_table.withColumn(
                 "row_number",
@@ -84,9 +100,13 @@ class ETLPipeline:
 
     def process_song_data(self, input_data, output_data) -> None:
         """
-        Perform ETL on song dataset
-        TODO: ADD DOCSTRING
+        Perform data munging on songs data set and extract
+        songs and artists data frames and write them as parquet
+
+        Songs are partitioned by year and artist_id and artists
+        are not partitioned
         """
+
         song_data_df = self.spark_session.read.json(input_data)
 
         songs_table_df = self.get_songs_table(song_data_df)
@@ -99,11 +119,18 @@ class ETLPipeline:
 
     def get_users_table(self, df: DataFrame) -> DataFrame:
         """
-        1. Rename columns to snake case
-        2. Get first occurrence of each user ordered by timestamp in descending
-           order to de-duplicate data
+        Filter users table attributes and de-duplicate user table records
+        by user_id
+
+        Table Attributes:
+          - userId
+          - first_name
+          - last_name
+          - gender
+          - level
+          - ts
         """
-        # extract columns for users table
+
         users_table = df.select(
             col("userId").alias("user_id"),
             col("firstname").alias("first_name"),
@@ -128,9 +155,18 @@ class ETLPipeline:
 
     def get_time_table(self, df: DataFrame) -> DataFrame:
         """
-        TODO: ADD DOCSTRING
+        Create time table attributes based on timestamp
+
+        Table Attributes:
+          - start_time
+          - hour
+          - day
+          - week
+          - month
+          - year
+          - weekday
         """
-        # create timestamp column from original timestamp column
+
         get_timestamp = udf(lambda x: str(datetime.fromtimestamp(x / 1000.0)))
         df = df.withColumn(
             "timestamp",
@@ -139,10 +175,8 @@ class ETLPipeline:
             ),
         )
 
-        # create datetime column from original timestamp column
         df = df.withColumn("timestamp", col("timestamp").cast(TimestampType()))
 
-        # extract columns to create time table
         time_table = df.select(
             col("timestamp").alias("start_time"),
             hour("timestamp").alias("hour"),
@@ -157,9 +191,9 @@ class ETLPipeline:
 
     def clean_log_data(self, df: DataFrame) -> DataFrame:
         """
-        1. Remove rows with nulls and empty strings and cast
-        2. Cast userId to LongType
-        3. Filter by actions for songplays
+        Filter rows with nulls and empty strings, cast userId to Long to
+        minimize space usage and allow numerical sorting and filter records
+        that are actions for songplay (i.e. page = NextSong)
         """
         df = df.dropna(
             how="any",
@@ -179,7 +213,6 @@ class ETLPipeline:
             ],
         )
 
-        # remove empty strings
         df = df.filter(
             (col("artist") != "")
             | (col("firstName") != "")
@@ -191,15 +224,16 @@ class ETLPipeline:
             | (col("userId") != "")
         )
 
-        # filter by actions for song plays
         return df.withColumn("userId", col("userId").cast(LongType())).filter(
             df.page == "NextSong"
         )
 
     def process_log_data(self, input_data, output_data) -> None:
         """
-        Perform ETL on user activity log dataset
-        TODO: ADD DOCSTRING
+        Perform data munging on user activity log, join the selected
+        attributes with artists and songs tables to create the songplays
+        table
+
         """
         log_data_df = self.spark_session.read.json(input_data)
         log_data_df = self.clean_log_data(log_data_df)
@@ -212,10 +246,12 @@ class ETLPipeline:
             urljoin(output_data, "time")
         )
 
-        # read in song data to use for songplays table
+        # read in songs for joining with songplays table
         songs_table_df = self.spark_session.read.parquet(
             urljoin(output_data, "songs")
         )
+
+        # read in artists for joining with songplays table
         artists_table_df = self.spark_session.read.parquet(
             urljoin(output_data, "artists")
         )
@@ -231,7 +267,6 @@ class ETLPipeline:
             artists_table_df["name"],
         )
 
-        # extract columns from joined song and log datasets to create songplays table
         songplays_table = songs_table_df.join(
             log_data_df,
             (log_data_df.artist == songs_table_df.name)
@@ -249,7 +284,6 @@ class ETLPipeline:
             month("timestamp").alias("month"),
         )
 
-        # write songplays table to parquet files partitioned by year and month
         songplays_table.write.partitionBy("year", "month").parquet(
             urljoin(output_data, "songplays")
         )

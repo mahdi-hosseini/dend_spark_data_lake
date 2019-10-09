@@ -102,15 +102,21 @@ A Python module for instantiation of a Spark session, this module is accessed by
 
 2. Consolidate all Python modules into `main.py`
 
-3. Place your Python scripts in a S3 bucket that is accessible to EMR
+3. Place your Python scripts in a S3 bucket that is accessible to EMR. For example:
 
-For example:
-* s3a://sparkify-spark-etl/code/main.py
+```
+s3a://sparkify-spark-etl/code/main.py
+```
 
 4. Use `spark-submit` to create and run the job, the following command performs that:
 
+_Note:_ The file `emr_step.json` is available in this repository:
+
 ```bash
-aws emr add-steps \
-    --cluster-id <emr_cluster_id> \
-    --steps Type=spark,Name=SparkifyJob,Args=[--deploy-mode,cluster,--master,yarn,--conf,spark.yarn.submit.waitAppCompletion=false,s3a://sparkify-spark-etl/code/main.py],ActionOnFailure=CONTINUE
+aws emr add-steps --cluster-id <emr_cluster_id> --steps file://emr_step.json
 ```
+
+## 7. Future Improvements
+
+- [ ] Create an installable module with `__main__.py` file and all
+- [ ] Add testing

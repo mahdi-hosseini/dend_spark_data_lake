@@ -1,0 +1,13 @@
+[
+    {
+       "Name":"Sparkify ETL",
+       "Args":[
+           "--master", "yarn",
+           "--deploy-mode", "cluster",
+           "--conf", "spark.yarn.submit.waitAppCompletion=false",
+           "--py-files", "s3a://sparkify-spark-etl/code/main.py"
+       ],
+       "ActionOnFailure":"CONTINUE",
+       "Type":"Spark"
+    }
+ ]
